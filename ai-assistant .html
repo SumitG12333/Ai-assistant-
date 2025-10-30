@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name='viewport' content='width=device-width, initial-scale=1'/>
+<title>SUMIT AI Chat Agent</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+
+<style>
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: #4a4a4a; border-radius: 3px; }
+.typing-indicator span {
+  height: 8px; width: 8px; float: left; margin: 0 1px;
+  background-color: #9E9E9E; border-radius: 50%; opacity: 0.4;
+  animation: 1s blink infinite .3333s;
+}
+.typing-indicator span:nth-child(2){animation-delay:.6666s;}
+.typing-indicator span:nth-child(3){animation-delay:.9999s;}
+@keyframes blink {50%{opacity:1;}}
+</style>
+</head>
+<body class="bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100 font-sans">
+
+<div id="app" class="flex h-screen overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="bg-gray-200 dark:bg-gray-800 w-64 p-4 flex-shrink-0 flex flex-col transition-all duration-300 -translate-x-full sm:translate-x-0">
+    <button id="new-chat-btn" class="w-full flex items-center justify-center gap-2 p-2 rounded-lg border border-gray-400 dark:border-gray-600 hover:bg-gray-300 dark:hover:bg-gray-700 transition-colors">
+      <i data-lucide="plus"></i> New Chat
+    </button>
+
+    <div class="mt-4">
+      <label for="model-select" class="text-sm font-medium mb-1 block">Select AI Model:</label>
+      <select id="model-select" class="w-full bg-gray-100 dark:bg-gray-700 p-2 rounded-lg focus:outline-none">
+        <option value="gemini">Gemini (Google)</option>
+        <option value="openai">ChatGPT (OpenAI)</option>
+        <option value="deepseek">DeepSeek R1</option>
+      </select>
+    </div>
+
+    <div id="conversation-history" class="mt-4 flex-grow overflow-y-auto"></div>
+    <div class="border-t border-gray-300 dark:border-gray-700 pt-4 mt-2">
+      <button id="clear-chat-btn" class="mt-2 flex items-center gap-2 p-2 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-700 w-full text-left text-red-500">
+        <i data-lucide="trash-2"></i> Clear Conversations
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Chat -->
+  <main class="flex-1 flex flex-col bg-white dark:bg-[#1e1e1e]">
+    <header class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 sm:hidden">
+      <button id="menu-toggle" class="p-2"><i data-lucide="menu"></i></button>
+      <h1 class="text-lg font-semibold">SUMIT AI Chat Agent</h1>
+    </header>
+
+    <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-4">
+      <div class="flex items-start gap-3">
+        <div class="bg-indigo-500 text-white p-2 rounded-full flex-shrink-0"><i data-lucide="sparkles"></i></div>
+        <div class="prose dark:prose-invert max-w-none bg-gray-100 dark:bg-gray-800 rounded-lg p-4">
+          <p>Hello! I'm your SUMIT AI Chat Agent. How can I help you today?</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="p-4 border-t border-gray-200 dark:border-gray-700">
+      <div class="relative bg-gray-100 dark:bg-gray-800 rounded-xl">
+        <textarea id="message-input" class="w-full bg-transparent p-4 pr-16 rounded-xl resize-none focus:outline-none" placeholder="Type your message..." rows="1"></textarea>
+        <button id="send-button" class="absolute right-4 top-1/2 -translate-y-1/2 p-2 bg-indigo-500 text-white rounded-lg hover:bg-indigo-600 disabled:bg-indigo-300 disabled:cursor-not-allowed">
+          <i data-lucide="send"></i>
+        </button>
+      </div>
+      <p class="text-xs text-center text-gray-500 mt-2">© 2025 Sumit Choudhary. All Rights Reserved.</p>
+    </div>
+  </main>
+</div>
+
+<!-- Rate Limit Modal -->
+<div id="rate-limit-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+  <div class="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl text-center max-w-sm mx-4">
+    <h2 class="text-2xl font-bold mb-4">API Limit Reached</h2>
+    <p class="mb-6 text-gray-600 dark:text-gray-300">You have exceeded your API request quota. Please try again later.</p>
+    <button id="close-modal-btn" class="bg-indigo-500 text-white px-6 py-2 rounded-lg hover:bg-indigo-600 w-full">Close</button>
+  </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const sendButton = document.getElementById('send-button');
+  const messageInput = document.getElementById('message-input');
+  const chatContainer = document.getElementById('chat-container');
+  const modelSelect = document.getElementById('model-select');
+  const rateLimitModal = document.getElementById('rate-limit-modal');
+  const closeModalBtn = document.getElementById('close-modal-btn');
+  lucide.createIcons();
+
+  const OPENAI_API_KEY = "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";
+  const GEMINI_API_KEY = "AIzaSyAlj03bIUaCuk-bgOUDnbWUkXIygf7hwU0";
+  const DEEPSEEK_API_KEY = "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";
+
+  const GEMINI_URL = (key) => `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`;
+  const OPENAI_URL = `https://openrouter.ai/api/v1/chat/completions`;
+  const DEEPSEEK_URL = `https://openrouter.ai/api/v1/chat/completions`;
+
+  function addMessage(role, text) {
+    const wrapper = document.createElement('div');
+    wrapper.className = `flex items-start gap-3 ${role === 'user' ? 'justify-end' : ''}`;
+    const icon = `<div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white ${role === 'user' ? 'bg-gray-500' : 'bg-indigo-500'}">
+      <i data-lucide="${role === 'user' ? 'user' : 'sparkles'}" class="w-5 h-5"></i></div>`;
+    const content = `<div class="prose dark:prose-invert max-w-none rounded-lg p-3 ${role === 'user' ? 'bg-indigo-500 text-white' : 'bg-gray-100 dark:bg-gray-800'}">${text}</div>`;
+    wrapper.innerHTML = role === 'user' ? content + icon : icon + content;
+    chatContainer.appendChild(wrapper);
+    lucide.createIcons({ nodes: [wrapper] });
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+
+  function addTyping() {
+    if (document.getElementById('typing')) return;
+    const div = document.createElement('div');
+    div.id = 'typing';
+    div.className = 'flex items-start gap-3';
+    div.innerHTML = `<div class="flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-white bg-indigo-500">
+      <i data-lucide="sparkles"></i></div>
+      <div class="prose dark:prose-invert bg-gray-100 dark:bg-gray-800 rounded-lg p-3 typing-indicator">
+        <span></span><span></span><span></span>
+      </div>`;
+    chatContainer.appendChild(div);
+    lucide.createIcons({ nodes: [div] });
+    chatContainer.scrollTop = chatContainer.scrollHeight;
+  }
+
+  function removeTyping() {
+    const t = document.getElementById('typing');
+    if (t) t.remove();
+  }
+
+  // ✅ Gemini
+  async function callGeminiAPI(history) {
+    addTyping();
+    try {
+      const res = await fetch(GEMINI_URL(GEMINI_API_KEY), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: history })
+      });
+      removeTyping();
+      if (res.status === 429) return rateLimitModal.classList.remove('hidden');
+      const data = await res.json();
+      const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
+      addMessage("model", reply);
+    } catch (err) {
+      removeTyping();
+      addMessage("model", "Error: " + err.message);
+    }
+  }
+
+  // ✅ OpenAI
+  async function callOpenAI(history) {
+    addTyping();
+    try {
+      const messages = history.map(m => ({
+        role: m.role === "model" ? "assistant" : m.role,
+        content: m.parts[0].text
+      }));
+
+      const res = await fetch(OPENAI_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${OPENAI_API_KEY}`,
+          "HTTP-Referer": "https://sumit-ai.local",
+          "X-Title": "Sumit AI Chat Agent"
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-3.5-turbo",
+          messages: messages
+        })
+      });
+
+      removeTyping();
+
+      if (!res.ok) {
+        const errText = await res.text();
+        addMessage("model", "Error: " + errText);
+        return;
+      }
+
+      const data = await res.json();
+      const reply = data?.choices?.[0]?.message?.content;
+      addMessage("model", reply || "No valid response.");
+    } catch (err) {
+      removeTyping();
+      addMessage("model", "Error: " + err.message);
+    }
+  }
+
+  // ✅ DeepSeek
+  async function callDeepSeek(history) {
+    addTyping();
+    try {
+      const messages = history.map(m => ({
+        role: m.role === "model" ? "assistant" : m.role,
+        content: m.parts[0].text
+      }));
+
+      const res = await fetch(DEEPSEEK_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${DEEPSEEK_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "deepseek/deepseek-chat",
+          messages: messages
+        })
+      });
+
+      removeTyping();
+
+      if (!res.ok) {
+        const errText = await res.text();
+        addMessage("model", "Error: " + errText);
+        return;
+      }
+
+      const data = await res.json();
+      const reply = data?.choices?.[0]?.message?.content;
+      addMessage("model", reply || "No valid response.");
+    } catch (err) {
+      removeTyping();
+      addMessage("model", "Error: " + err.message);
+    }
+  }
+
+  // ✅ Send Button
+  sendButton.onclick = () => {
+    const text = messageInput.value.trim();
+    if (!text) return;
+    addMessage("user", text);
+    messageInput.value = "";
+    const history = [{ role: "user", parts: [{ text }] }];
+
+    if (modelSelect.value === "gemini") callGeminiAPI(history);
+    else if (modelSelect.value === "deepseek") callDeepSeek(history);
+    else callOpenAI(history);
+  };
+
+  messageInput.addEventListener("keypress", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendButton.click();
+    }
+  });
+
+  closeModalBtn.onclick = () => rateLimitModal.classList.add("hidden");
+});
+</script>
+</body>
+</html>
